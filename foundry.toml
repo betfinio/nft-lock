@@ -1,0 +1,8 @@
+[profile.default]
+evm_version = 'shanghai'
+
+[dependencies]
+forge-std = "v0.6.2"
+openzeppelin-contracts = "v4.8.0" # or a compatible version
+uniswap-v3-core = "v1.0.0" # or a compatible version
+uniswap-v3-periphery = "v1.0.0" # or a compatible version
