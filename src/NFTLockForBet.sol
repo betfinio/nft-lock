@@ -36,7 +36,7 @@ contract NFTLockForBet is Ownable {
     uint256 totalBetAmount = 10000 * (10 ** 18);
     uint256 lockedBetTotalValue = 0;
     uint256 public closeLockTime = 0;
-    uint256 public maxLockPeriod = 1 years;
+    uint256 public maxLockPeriod = 3600*24*365;
     struct LockInfo {
         address owner;
         uint256 lockPeriod;
