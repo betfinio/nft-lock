@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.0;
 
 import "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
 import "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import "openzeppelin-contracts/contracts/access/Ownable.sol";
+import "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import "v3-periphery/contracts/interfaces/INonfungiblePositionManager.sol";
 import "v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import "v3-core/contracts/libraries/TickMath.sol";
@@ -30,15 +31,20 @@ contract NFTLockForBet is Ownable {
     mapping(uint256 => LockInfo) public lockedNFTs;
     mapping(uint256 => address) public nftOwner;
     mapping(address => uint256[]) public lockedTokensByOwner;
+    mapping(uint256 => bool) public nftClaimRewardStatus;
+    uint256 maxInputNum;
     uint256 totalBetAmount = 10000 * (10 ** 18);
     uint256 lockedBetTotalValue = 0;
     uint256 public closeLockTime = 0;
+    uint256 public maxLockPeriod = 1 years;
     struct LockInfo {
         address owner;
         uint256 lockPeriod;
         uint256 betTokenAmount;
     }
     event NFTLocked(address indexed user, uint256 indexed tokenId);
+    event CloseService(uint256 indexed blockTime);
+    event OpenService(uint256 indexed blockTime);
     event RewardClaimed(
         address indexed user,
         uint256 indexed tokenId,
@@ -55,11 +61,28 @@ contract NFTLockForBet is Ownable {
         address _positionManager,
         address _factory
     ) Ownable(msg.sender) {
+        require(
+            _nftContract != address(0),
+            "Nft Contract cannot be the zero address"
+        );
+        require(
+            _betToken != address(0),
+            "betToken address cannot be the zero address"
+        );
+        require(
+            _positionManager != address(0),
+            "NFT PositionManager cannot be the zero address"
+        );
+        require(
+            _factory != address(0),
+            "Factory contract address cannot be the zero address"
+        );
         nftContract = IERC721(_nftContract);
         betToken = IERC20(_betToken);
         positionManager = INonfungiblePositionManager(_positionManager);
         factory = IPancakeSwapV3Factory(_factory);
         betTokenAddress = _betToken;
+        maxInputNum = 3;
     }
     function transferLockedNFTOwnership(
         uint256 tokenId,
@@ -82,6 +105,10 @@ contract NFTLockForBet is Ownable {
         uint256 lockPeriod,
         address newOwner
     ) external {
+        require(
+            lockPeriod < maxLockPeriod,
+            "You have to set lock period under max period limit"
+        );
         require(
             nftContract.ownerOf(tokenId) == msg.sender,
             "Not the owner of the NFT"
@@ -108,6 +135,7 @@ contract NFTLockForBet is Ownable {
 
             emit OwnershipTransferred(msg.sender, newOwner, tokenId);
         }
+        nftClaimRewardStatus[tokenId] = false;
         emit NFTLocked(msg.sender, tokenId);
     }
     function lockMultipleNFTs(
@@ -116,7 +144,7 @@ contract NFTLockForBet is Ownable {
         address newOwner
     ) external {
         require(closeLockTime == 0, "Lock is finished");
-
+        require(maxInputNum >= tokenIds.length, "You have to set amounts of NFT under max available amounts");
         for (uint256 i = 0; i < tokenIds.length; i++) {
             uint256 tokenId = tokenIds[i];
             require(
@@ -153,10 +181,12 @@ contract NFTLockForBet is Ownable {
 
                 emit OwnershipTransferred(msg.sender, newOwner, tokenId);
             }
+            nftClaimRewardStatus[tokenId] = false;
             emit NFTLocked(msg.sender, tokenId);
         }
     }
     function unlockNFT(uint256 tokenId) external {
+        require(nftClaimRewardStatus[tokenId], "Please claim reward!");
         require(
             lockedNFTs[tokenId].owner == msg.sender,
             "Not the owner of the locked NFT"
@@ -164,7 +194,7 @@ contract NFTLockForBet is Ownable {
         require(
             block.timestamp >= closeLockTime + lockedNFTs[tokenId].lockPeriod &&
                 closeLockTime != 0,
-            "Not the owner of the locked NFT"
+            "Lock period has not expired or lock is not closed"
         );
 
         nftContract.safeTransferFrom(address(this), msg.sender, tokenId);
@@ -172,9 +202,10 @@ contract NFTLockForBet is Ownable {
         delete lockedNFTs[tokenId];
     }
     function unlockMultipleNFTs(uint256[] memory tokenIds) external {
+        require(maxInputNum >= tokenIds.length, "You have to set amounts of NFT under max available amounts");
         for (uint256 i = 0; i < tokenIds.length; i++) {
             uint256 tokenId = tokenIds[i];
-
+            require(nftClaimRewardStatus[tokenId], "Please claim reward!");
             // Check if the caller is the owner of the locked NFT
             require(
                 lockedNFTs[tokenId].owner == msg.sender,
@@ -234,7 +265,12 @@ contract NFTLockForBet is Ownable {
     }
     function claimRewardByNftId(uint256 tokenId) external {
         require(
-            block.timestamp >= closeLockTime + lockedNFTs[tokenId].lockPeriod && closeLockTime != 0,
+            !nftClaimRewardStatus[tokenId],
+            "This NFT reward was already claimed"
+        );
+        require(
+            block.timestamp >= closeLockTime + lockedNFTs[tokenId].lockPeriod &&
+                closeLockTime != 0,
             "Claim too early"
         );
         uint256 betTokenAmount = getTokenAmounts(tokenId);
@@ -242,14 +278,31 @@ contract NFTLockForBet is Ownable {
             ((lockedNFTs[tokenId].lockPeriod) * (betTokenAmount))) /
             lockedBetTotalValue;
         require(tokenClaimAmount > 0, "No tokens to claim");
-        betToken.transfer(lockedNFTs[tokenId].owner, tokenClaimAmount);
-        emit RewardClaimed(lockedNFTs[tokenId].owner, tokenId, tokenClaimAmount);
+        SafeERC20.safeTransfer(
+            betToken,
+            lockedNFTs[tokenId].owner,
+            tokenClaimAmount
+        );
+        nftClaimRewardStatus[tokenId] = true;
+        emit RewardClaimed(
+            lockedNFTs[tokenId].owner,
+            tokenId,
+            tokenClaimAmount
+        );
     }
     function closeLockService() external onlyOwner {
         closeLockTime = block.timestamp;
+        emit CloseService(block.timestamp);
     }
     function openLockService() external onlyOwner {
         closeLockTime = 0;
+        emit OpenService(block.timestamp);
+    }
+    function changeLockPeriod(uint256 period) external onlyOwner {
+        maxLockPeriod = period;
+    }
+    function changeMaxInputNum(uint256 max) external onlyOwner {
+        maxInputNum = max;
     }
     function _removeTokenFromOwnerEnumeration(
         address owner,
@@ -324,7 +377,7 @@ contract NFTLockForBet is Ownable {
         uint256 numerator1 = uint256(liquidity) << FixedPoint96.RESOLUTION;
         uint256 numerator2 = sqrtRatioBX96 - sqrtRatioAX96;
 
-        require(sqrtRatioAX96 > 0);
+        require(sqrtRatioAX96 > 0, "sqrtRatioAX96 value must bigger than 0");
 
         return
             roundUp
@@ -379,7 +432,7 @@ contract NFTLockForBet is Ownable {
 
         // Handle non-overflow cases, 256 by 256 division
         if (prod1 == 0) {
-            require(denominator > 0);
+            require(denominator > 0, "denominator must be bigger than 0");
             assembly {
                 result := div(prod0, denominator)
             }
@@ -388,7 +441,7 @@ contract NFTLockForBet is Ownable {
 
         // Make sure the result is less than 2**256.
         // Also prevents denominator == 0
-        require(denominator > prod1);
+        require(denominator > prod1, "denominator must be bigger than prod1");
         uint256 remainder;
         assembly {
             remainder := mulmod(a, b, denominator)
@@ -435,7 +488,7 @@ contract NFTLockForBet is Ownable {
     ) internal pure returns (uint256 result) {
         result = mulDiv(a, b, denominator);
         if (mulmod(a, b, denominator) > 0) {
-            require(result < type(uint256).max);
+            require(result < type(uint256).max, "result is too large");
             result++;
         }
     }
