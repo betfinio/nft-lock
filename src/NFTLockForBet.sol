@@ -184,7 +184,10 @@ contract NFTLockForBet is Ownable {
         emit Claimed(_msgSender(), tokenId, reward);
     }
 
-    function unlockMultipleNFTs(uint256[] memory tokenIds) external isClosed {
+    function claimNFTs(uint256[] calldata tokenIds) external isClosed {
+        require(tokenIds.length > 0, "No tokens to claim");
+        require(tokenIds.length > 100, "Too many tokens to claim");
+
         for (uint256 i = 0; i < tokenIds.length; i++) {
             uint256 tokenId = tokenIds[i];
             LockInfo memory lockInfo = lockedNFTs[tokenId];
