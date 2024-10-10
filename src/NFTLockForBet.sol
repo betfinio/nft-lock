@@ -10,6 +10,7 @@ import "v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import "v3-core/contracts/libraries/TickMath.sol";
 import "v3-core/contracts/libraries/SqrtPriceMath.sol";
 import "v3-core/contracts/interfaces/IUniswapV3Factory.sol";
+import "./FullMath.sol";
 
 contract NFTLockForBet is Ownable {
     using SafeERC20 for IERC20;
@@ -328,10 +329,15 @@ contract NFTLockForBet is Ownable {
         return
             roundUp
                 ? divRoundingUp(
-                    mulDivRoundingUp(numerator1, numerator2, sqrtRatioBX96),
+                    FullMath08.mulDivRoundingUp(
+                        numerator1,
+                        numerator2,
+                        sqrtRatioBX96
+                    ),
                     sqrtRatioAX96
                 )
-                : mulDiv(numerator1, numerator2, sqrtRatioBX96) / sqrtRatioAX96;
+                : FullMath08.mulDiv(numerator1, numerator2, sqrtRatioBX96) /
+                    sqrtRatioAX96;
     }
 
     function getAmount1Delta(
@@ -345,12 +351,12 @@ contract NFTLockForBet is Ownable {
 
         return
             roundUp
-                ? mulDivRoundingUp(
+                ? FullMath08.mulDivRoundingUp(
                     liquidity,
                     sqrtRatioBX96 - sqrtRatioAX96,
                     FixedPoint96.Q96
                 )
-                : mulDiv(
+                : FullMath08.mulDiv(
                     liquidity,
                     sqrtRatioBX96 - sqrtRatioAX96,
                     FixedPoint96.Q96
@@ -363,83 +369,6 @@ contract NFTLockForBet is Ownable {
     ) internal pure returns (uint256 z) {
         assembly {
             z := add(div(x, y), gt(mod(x, y), 0))
-        }
-    }
-
-    function mulDiv(
-        uint256 a,
-        uint256 b,
-        uint256 denominator
-    ) internal pure returns (uint256 result) {
-        uint256 prod0;
-        uint256 prod1;
-        assembly {
-            let mm := mulmod(a, b, not(0))
-            prod0 := mul(a, b)
-            prod1 := sub(sub(mm, prod0), lt(mm, prod0))
-        }
-
-        // Handle non-overflow cases, 256 by 256 division
-        if (prod1 == 0) {
-            require(denominator > 0, "denominator must be bigger than 0");
-            assembly {
-                result := div(prod0, denominator)
-            }
-            return result;
-        }
-
-        // Make sure the result is less than 2**256.
-        // Also prevents denominator == 0
-        require(denominator > prod1, "denominator must be bigger than prod1");
-        uint256 remainder;
-        assembly {
-            remainder := mulmod(a, b, denominator)
-        }
-        // Subtract 256 bit number from 512 bit number
-        assembly {
-            prod1 := sub(prod1, gt(remainder, prod0))
-            prod0 := sub(prod0, remainder)
-        }
-
-        uint256 twos = denominator & (~denominator + 1);
-        // uint256 twos = -denominator & denominator;
-
-        assembly {
-            denominator := div(denominator, twos)
-        }
-
-        // Divide [prod1 prod0] by the factors of two
-        assembly {
-            prod0 := div(prod0, twos)
-        }
-
-        assembly {
-            twos := add(div(sub(0, twos), twos), 1)
-        }
-        prod0 |= prod1 * twos;
-
-        uint256 inv = (3 * denominator) ^ 2;
-
-        inv *= 2 - denominator * inv; // inverse mod 2**8
-        inv *= 2 - denominator * inv; // inverse mod 2**16
-        inv *= 2 - denominator * inv; // inverse mod 2**32
-        inv *= 2 - denominator * inv; // inverse mod 2**64
-        inv *= 2 - denominator * inv; // inverse mod 2**128
-        inv *= 2 - denominator * inv; // inverse mod 2**256
-
-        result = prod0 * inv;
-        return result;
-    }
-
-    function mulDivRoundingUp(
-        uint256 a,
-        uint256 b,
-        uint256 denominator
-    ) internal pure returns (uint256 result) {
-        result = mulDiv(a, b, denominator);
-        if (mulmod(a, b, denominator) > 0) {
-            require(result < type(uint256).max, "result is too large");
-            result++;
         }
     }
 }
