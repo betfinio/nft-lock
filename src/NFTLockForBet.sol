@@ -246,7 +246,7 @@ contract NFTLockForBet is Ownable {
     function closeLockService() external onlyOwner {
         closeLockTime = block.timestamp;
         require(
-            betToken.balanceOf(address(this)) == airdrop,
+            betToken.balanceOf(address(this)) >= airdrop,
             "Balance is insufficient"
         );
         emit Closed(block.timestamp);
