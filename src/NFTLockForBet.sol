@@ -5,14 +5,16 @@ import "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
 import "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import "openzeppelin-contracts/contracts/access/Ownable.sol";
 import "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import "v3-periphery/contracts/interfaces/INonfungiblePositionManager.sol";
 import "v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import "v3-core/contracts/libraries/TickMath.sol";
 import "v3-core/contracts/libraries/SqrtPriceMath.sol";
 import "v3-core/contracts/interfaces/IUniswapV3Factory.sol";
+
 import "./FullMath.sol";
 
-contract NFTLockForBet is Ownable {
+contract NFTLockForBet is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint256 public constant maxLockPeriod = 3650 days;
@@ -91,7 +93,8 @@ contract NFTLockForBet is Ownable {
         uint256 tokenId,
         uint256 lockPeriod,
         address newOwner
-    ) external isOpen {
+    ) external isOpen nonReentrant {
+        require(newOwner != address(0), "New owner cannot be the zero address");
         // Check if the lock period is within the limits
         require(
             lockPeriod <= maxLockPeriod,
@@ -129,7 +132,7 @@ contract NFTLockForBet is Ownable {
         uint256[] calldata tokenIds,
         uint256[] calldata lockPeriods,
         address[] calldata newOwners
-    ) external isOpen {
+    ) external isOpen nonReentrant {
         require(
             tokenIds.length == lockPeriods.length &&
                 tokenIds.length == newOwners.length,
@@ -141,6 +144,19 @@ contract NFTLockForBet is Ownable {
             uint256 tokenId = tokenIds[i];
             uint256 lockPeriod = lockPeriods[i];
             address newOwner = newOwners[i];
+            require(
+                newOwner != address(0),
+                "New owner cannot be the zero address"
+            );
+            // Check if the lock period is within the limits
+            require(
+                lockPeriod <= maxLockPeriod,
+                "You have to set lock period under max period limit"
+            );
+            require(
+                lockPeriod >= minLockPeriod,
+                "You have to set lock period over min period limit"
+            );
             require(
                 nftContract.ownerOf(tokenId) == _msgSender(),
                 "Not the owner of the NFT"
@@ -165,8 +181,8 @@ contract NFTLockForBet is Ownable {
         }
     }
 
-    function claimNFT(uint256 tokenId) external isClosed {
-        LockInfo memory lockInfo = lockedNFTs[tokenId];
+    function claimNFT(uint256 tokenId) external isClosed nonReentrant {
+        LockInfo storage lockInfo = lockedNFTs[tokenId];
         require(!lockInfo.claimed, "Already claimed");
         require(
             lockInfo.owner == _msgSender(),
@@ -178,19 +194,21 @@ contract NFTLockForBet is Ownable {
             "Lock period has not expired yet"
         );
         lockInfo.claimed = true;
-        uint256 reward = (lockInfo.share / totalShares) * airdrop;
+        uint256 reward = (lockInfo.share * airdrop) / totalShares;
         nftContract.safeTransferFrom(address(this), _msgSender(), tokenId);
         require(betToken.transfer(_msgSender(), reward), "Transfer failed");
         emit Claimed(_msgSender(), tokenId, reward);
     }
 
-    function claimNFTs(uint256[] calldata tokenIds) external isClosed {
+    function claimNFTs(
+        uint256[] calldata tokenIds
+    ) external isClosed nonReentrant {
         require(tokenIds.length > 0, "No tokens to claim");
-        require(tokenIds.length > 100, "Too many tokens to claim");
+        require(tokenIds.length <= 100, "Too many tokens to claim");
 
         for (uint256 i = 0; i < tokenIds.length; i++) {
             uint256 tokenId = tokenIds[i];
-            LockInfo memory lockInfo = lockedNFTs[tokenId];
+            LockInfo storage lockInfo = lockedNFTs[tokenId];
             require(!lockInfo.claimed, "Already claimed");
             require(
                 lockInfo.owner == _msgSender(),
@@ -243,7 +261,7 @@ contract NFTLockForBet is Ownable {
         revert("Token is not part of the pair");
     }
 
-    function closeLockService() external onlyOwner {
+    function closeLockService() external onlyOwner nonReentrant {
         closeLockTime = block.timestamp;
         require(
             betToken.balanceOf(address(this)) >= airdrop,
