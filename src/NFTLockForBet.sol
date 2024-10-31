@@ -270,30 +270,6 @@ contract NFTLockForBet is Ownable, ReentrancyGuard {
         emit Closed(block.timestamp);
     }
 
-    function _removeTokenFromOwnerEnumeration(
-        address owner,
-        uint256 tokenId
-    ) internal {
-        uint256 lastTokenIndex = lockedTokensByOwner[owner].length - 1;
-        uint256 tokenIndex;
-
-        // Find the token index in the array
-        for (uint256 i = 0; i < lockedTokensByOwner[owner].length; i++) {
-            if (lockedTokensByOwner[owner][i] == tokenId) {
-                tokenIndex = i;
-                break;
-            }
-        }
-
-        // If the token being removed is not the last one, swap it with the last one
-        if (tokenIndex != lastTokenIndex) {
-            uint256 lastTokenId = lockedTokensByOwner[owner][lastTokenIndex];
-            lockedTokensByOwner[owner][tokenIndex] = lastTokenId;
-        }
-
-        lockedTokensByOwner[owner].pop();
-    }
-
     function getAmountsForLiquidity(
         uint160 sqrtPriceX96,
         int24 tickLower,
