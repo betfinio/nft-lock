@@ -220,7 +220,7 @@ contract NFTLockForBet is Ownable, ReentrancyGuard {
                 "Lock period has not expired yet"
             );
             lockInfo.claimed = true;
-            uint256 reward = (lockInfo.share / totalShares) * airdrop;
+            uint256 reward = (lockInfo.share * airdrop) / totalShares;
             nftContract.safeTransferFrom(address(this), _msgSender(), tokenId);
             require(betToken.transfer(_msgSender(), reward), "Transfer failed");
             emit Claimed(_msgSender(), tokenId, reward);
