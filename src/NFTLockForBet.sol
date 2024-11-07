@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
+import "openzeppelin-contracts/contracts/token/ERC721/IERC721Receiver.sol";
 import "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import "openzeppelin-contracts/contracts/access/Ownable.sol";
 import "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -161,6 +162,8 @@ contract NFTLockForBet is Ownable, ReentrancyGuard {
                 nftContract.ownerOf(tokenId) == _msgSender(),
                 "Not the owner of the NFT"
             );
+            // check if newOwner is EOA or contract that implements IERC721Receiver
+            require(isEOAOrIERC721Receiver(newOwner), "Invalid new owner");
             // get the amount of bet token luquiditied in the NFT
             uint256 tokenLocked = getTokenAmounts(tokenId);
             // increment total locked bet amount
@@ -366,6 +369,32 @@ contract NFTLockForBet is Ownable, ReentrancyGuard {
     ) internal pure returns (uint256 z) {
         assembly {
             z := add(div(x, y), gt(mod(x, y), 0))
+        }
+    }
+
+    function isEOAOrIERC721Receiver(address newOwner) internal returns (bool) {
+        uint256 codeSize;
+        assembly {
+            codeSize := extcodesize(newOwner)
+        }
+
+        // If the code size is zero, it's an EOA
+        if (codeSize == 0) {
+            return true;
+        }
+
+        // If it's a contract, check if it implements `onERC721Received`
+        try
+            IERC721Receiver(newOwner).onERC721Received(
+                address(this),
+                address(0),
+                0,
+                ""
+            )
+        returns (bytes4 retval) {
+            return retval == IERC721Receiver.onERC721Received.selector;
+        } catch {
+            return false;
         }
     }
 }

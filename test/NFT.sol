@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import "openzeppelin-contracts/contracts/token/ERC721/IERC721Receiver.sol";
+
 interface iERC165 {
     function supportsInterface(bytes4 interfaceID) external view returns (bool);
 }
@@ -37,15 +39,6 @@ interface iERC721 is iERC165 {
         address owner,
         address operator
     ) external view returns (bool);
-}
-
-interface IERC721Receiver {
-    function onERC721Received(
-        address operator,
-        address from,
-        uint256 tokenId,
-        bytes calldata data
-    ) external returns (bytes4);
 }
 
 contract ERC721 is iERC721 {
