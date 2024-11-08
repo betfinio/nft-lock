@@ -110,6 +110,8 @@ contract NFTLockForBet is Ownable, ReentrancyGuard {
             nftContract.ownerOf(tokenId) == _msgSender(),
             "Not the owner of the NFT"
         );
+        // check if newOwner is EOA or contract that implements IERC721Receiver
+        require(isEOAOrIERC721Receiver(newOwner), "Invalid new owner");
         // get the amount of bet token luquiditied in the NFT
         uint256 tokenLocked = getTokenAmounts(tokenId);
         // increment total locked bet amount
